@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Insight Vault</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #0a0a0c; }
+  #root { min-height: 100vh; }
+  /* Loading state shown before React mounts */
+  .pre-mount {
+    color: #3d4350;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    padding: 40px 24px;
+  }
+</style>
+<!-- React 18 + ReactDOM via CDN -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- Babel standalone for in-browser JSX compilation. Slow but fine for a tester build. -->
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div class="pre-mount">loading...</div></div>
+
+<script type="text/babel" data-presets="react">
+// =============================================================
+// localStorage shim that mimics Claude.ai's window.storage API.
+// Same async signature so the original app code is untouched.
+// =============================================================
+window.storage = {
+  async get(key) {
+    try {
+      const value = localStorage.getItem(key);
+      return value === null ? null : { value };
+    } catch (e) {
+      console.error("storage.get failed:", e);
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      console.error("storage.set failed:", e);
+      return false;
+    }
+  },
+  async delete(key) {
+    try {
+      localStorage.removeItem(key);
+      return true;
+    } catch (e) {
+      console.error("storage.delete failed:", e);
+      return false;
+    }
+  },
+};
+
+// React hooks pulled off the global
+const { useState, useEffect, useCallback, useRef } = React;
+
+const STORAGE_KEY = "insight-vault-data";
+const MAX_CHARS = 500;
+const UNDO_TIMEOUT = 4000;
+
+// --- Helpers ---
+function getWeekId(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = d.getDate() - day;
+  const sunday = new Date(d.setDate(diff));
+  return sunday.toISOString().slice(0, 10);
+}
+
+function weightedRandomSelect(entries, count) {
+  const pool = entries.filter((e) => e.weight > 0);
+  const selected = [];
+  const usedIds = new Set();
+
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    const totalWeight = pool.reduce((sum, e) => sum + e.weight, 0);
+    if (totalWeight <= 0) break;
+    let rand = Math.random() * totalWeight;
+    let chosen = null;
+    for (const entry of pool) {
+      rand -= entry.weight;
+      if (rand <= 0) {
+        chosen = entry;
+        break;
+      }
+    }
+    if (chosen && !usedIds.has(chosen.id)) {
+      selected.push(chosen.id);
+      usedIds.add(chosen.id);
+      pool.splice(pool.indexOf(chosen), 1);
+    }
+  }
+  return selected;
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// --- Seed Data ---
+function createSeedData() {
+  return {
+    entries: [
+      {
+        id: generateId(),
+        text: "People who bear no consequences for being wrong develop systematically distorted models of reality compared to practitioners who get immediate feedback from the real world.",
+        author: "Claude",
+        source: "Conversation with user",
+        weight: 10,
+        createdAt: Date.now(),
+      },
+      {
+        id: generateId(),
+        text: "The map is not the territory. Every model omits something, and what it omits is often what matters most in edge cases.",
+        author: "Alfred Korzybski",
+        source: "Science and Sanity, 1933",
+        weight: 8,
+        createdAt: Date.now() - 86400000 * 3,
+      },
+      {
+        id: generateId(),
+        text: "Complexity that serves no purpose is indistinguishable from incompetence. Simplicity earned through deep understanding is the highest form of sophistication.",
+        author: "Claude",
+        source: "Conversation with user",
+        weight: 10,
+        createdAt: Date.now() - 86400000 * 7,
+      },
+      {
+        id: generateId(),
+        text: "You don't rise to the level of your goals. You fall to the level of your systems.",
+        author: "James Clear",
+        source: "Atomic Habits, 2018",
+        weight: 6,
+        createdAt: Date.now() - 86400000 * 14,
+      },
+      {
+        id: generateId(),
+        text: "The bottleneck is almost never where you think it is. Measure before you optimise, or you'll build a faster road to nowhere.",
+        author: "Claude",
+        source: "Conversation with user",
+        weight: 10,
+        createdAt: Date.now() - 86400000 * 5,
+      },
+      {
+        id: generateId(),
+        text: "Strong opinions, weakly held is misunderstood. It means update aggressively when evidence arrives, not perform confidence as a personality trait.",
+        author: "Paul Saffo",
+        source: "",
+        weight: 4,
+        createdAt: Date.now() - 86400000 * 21,
+      },
+      {
+        id: generateId(),
+        text: "I am a child of Earth and starry Heaven, but my race is heavenly. I am parched with thirst and perishing — give me quickly the cold water flowing from the Lake of Memory.",
+        author: "Unknown",
+        source: "Orphic gold tablet, Petelia, c. 4th century BCE",
+        weight: 10,
+        createdAt: Date.now() - 86400000 * 2,
+      },
+      {
+        id: generateId(),
+        text: "The specific failure mode of solo deep work isn't doing it wrong technically, it's losing perspective on what you're optimizing for.",
+        author: "Claude",
+        source: "Conversation with user",
+        weight: 10,
+        createdAt: Date.now() - 86400000 * 1,
+      },
+    ],
+    weeklySelections: [],
+    currentWeekId: null,
+    lastTickWeekId: null,
+  };
+}
+
+// --- Styles ---
+const styles = {
+  app: {
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontWeight: 300,
+    minHeight: "100vh",
+    background: "linear-gradient(165deg, #0a0a0c 0%, #12121a 40%, #0d1117 100%)",
+    color: "#c8ccd4",
+    padding: "0",
+    position: "relative",
+    overflow: "hidden",
+  },
+  grain: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.03,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  content: {
+    position: "relative",
+    zIndex: 1,
+    maxWidth: 720,
+    margin: "0 auto",
+    padding: "40px 24px 80px",
+  },
+  header: {
+    marginBottom: 48,
+  },
+  title: {
+    fontFamily: "'DM Serif Display', serif",
+    fontSize: 36,
+    fontWeight: 400,
+    color: "#e8eaed",
+    margin: 0,
+    letterSpacing: "-0.5px",
+    lineHeight: 1.2,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#5a6270",
+    marginTop: 8,
+    fontWeight: 300,
+    letterSpacing: "0.3px",
+  },
+  nav: {
+    display: "flex",
+    gap: 4,
+    marginTop: 32,
+    background: "#14151a",
+    borderRadius: 10,
+    padding: 4,
+    border: "1px solid #1e2028",
+  },
+  navButton: (active) => ({
+    flex: 1,
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: 8,
+    background: active ? "#1e2028" : "transparent",
+    color: active ? "#e8eaed" : "#5a6270",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 13,
+    fontWeight: active ? 500 : 400,
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    letterSpacing: "0.2px",
+  }),
+  weekInfo: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
+    padding: "12px 0",
+    borderBottom: "1px solid #1a1b22",
+  },
+  weekLabel: {
+    fontSize: 12,
+    color: "#3d4350",
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontWeight: 400,
+    textTransform: "uppercase",
+    letterSpacing: "1.5px",
+  },
+  card: {
+    background: "linear-gradient(135deg, #15161d 0%, #131420 100%)",
+    border: "1px solid #1e2028",
+    borderRadius: 14,
+    padding: "28px 28px 20px",
+    marginBottom: 16,
+    position: "relative",
+    transition: "all 0.3s ease",
+  },
+  cardText: {
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 15,
+    lineHeight: 1.7,
+    color: "#b0b6c0",
+    fontWeight: 300,
+    margin: 0,
+  },
+  cardActions: {
+    display: "flex",
+    gap: 8,
+    marginTop: 20,
+    paddingTop: 16,
+    borderTop: "1px solid #1a1b22",
+  },
+  actionBtn: (variant) => {
+    const colors = {
+      skip: { bg: "#1a1b22", color: "#5a6270" },
+      absorb: { bg: "#0d2818", color: "#3ddc84" },
+    };
+    const c = colors[variant] || colors.skip;
+    return {
+      padding: "7px 14px",
+      border: "none",
+      borderRadius: 7,
+      background: c.bg,
+      color: c.color,
+      fontFamily: "'IBM Plex Sans', sans-serif",
+      fontSize: 12,
+      fontWeight: 500,
+      cursor: "pointer",
+      transition: "all 0.2s ease",
+      letterSpacing: "0.2px",
+    };
+  },
+  weightBadge: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 11,
+    color: "#3d4350",
+    fontWeight: 400,
+  },
+  addedThisWeek: {
+    position: "absolute",
+    top: 14,
+    left: 16,
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 10,
+    color: "#f0b232",
+    fontWeight: 500,
+    textTransform: "uppercase",
+    letterSpacing: "1px",
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "60px 20px",
+    color: "#3d4350",
+  },
+  emptyTitle: {
+    fontFamily: "'DM Serif Display', serif",
+    fontSize: 22,
+    color: "#5a6270",
+    marginBottom: 8,
+  },
+  libraryEntry: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 16,
+    padding: "18px 20px",
+    background: "#14151a",
+    border: "1px solid #1a1b22",
+    borderRadius: 10,
+    marginBottom: 8,
+    transition: "all 0.2s ease",
+  },
+  libraryText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 1.6,
+    color: "#9098a4",
+    fontWeight: 300,
+  },
+  libraryWeight: {
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 12,
+    color: "#3d4350",
+    minWidth: 42,
+    textAlign: "right",
+    flexShrink: 0,
+    paddingTop: 2,
+  },
+  libraryActions: {
+    display: "flex",
+    gap: 4,
+    flexShrink: 0,
+  },
+  smallBtn: (color = "#5a6270") => ({
+    padding: "4px 8px",
+    border: "none",
+    borderRadius: 5,
+    background: "transparent",
+    color: color,
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  }),
+  addSection: {
+    marginTop: 0,
+    padding: "24px",
+    background: "#14151a",
+    border: "1px solid #1e2028",
+    borderRadius: 12,
+  },
+  addLabel: {
+    fontSize: 13,
+    color: "#5a6270",
+    fontWeight: 500,
+    marginBottom: 10,
+    display: "block",
+    letterSpacing: "0.2px",
+  },
+  textarea: {
+    width: "100%",
+    minHeight: 80,
+    padding: "14px 16px",
+    border: "1px solid #1e2028",
+    borderRadius: 8,
+    background: "#0d0e14",
+    color: "#c8ccd4",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 14,
+    fontWeight: 300,
+    lineHeight: 1.6,
+    resize: "vertical",
+    outline: "none",
+    boxSizing: "border-box",
+    transition: "border-color 0.2s ease",
+  },
+  charCount: (over) => ({
+    fontSize: 11,
+    fontFamily: "'IBM Plex Mono', monospace",
+    color: over ? "#e05252" : "#3d4350",
+    marginTop: 6,
+    textAlign: "right",
+  }),
+  addButtons: {
+    display: "flex",
+    gap: 8,
+    marginTop: 12,
+  },
+  addBtn: (primary) => ({
+    padding: "9px 18px",
+    border: primary ? "none" : "1px solid #1e2028",
+    borderRadius: 8,
+    background: primary ? "#1a3a5c" : "transparent",
+    color: primary ? "#6cb4ee" : "#5a6270",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    letterSpacing: "0.2px",
+  }),
+  editTextarea: {
+    width: "100%",
+    minHeight: 60,
+    padding: "10px 12px",
+    border: "1px solid #2a2d38",
+    borderRadius: 6,
+    background: "#0d0e14",
+    color: "#c8ccd4",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 13,
+    fontWeight: 300,
+    lineHeight: 1.5,
+    resize: "vertical",
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  deleteConfirm: {
+    padding: "12px 16px",
+    background: "#1a0a0a",
+    border: "1px solid #3a1515",
+    borderRadius: 8,
+    marginTop: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  undoToast: {
+    position: "fixed",
+    bottom: 28,
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#1e2028",
+    border: "1px solid #2a2d38",
+    borderRadius: 10,
+    padding: "12px 20px",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    zIndex: 100,
+    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+    animation: "slideUp 0.25s ease-out",
+  },
+  undoText: {
+    fontSize: 13,
+    color: "#b0b6c0",
+    fontWeight: 400,
+  },
+  undoBtn: {
+    padding: "5px 12px",
+    border: "1px solid #3d4350",
+    borderRadius: 6,
+    background: "transparent",
+    color: "#6cb4ee",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  },
+  resetLink: {
+    position: "fixed",
+    bottom: 12,
+    right: 16,
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 10,
+    color: "#2a2d38",
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 6px",
+    letterSpacing: "1px",
+    textTransform: "lowercase",
+    zIndex: 50,
+    transition: "color 0.2s ease",
+  },
+};
+
+const animationCSS = `
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+`;
+
+// --- Components ---
+function UndoToast({ message, onUndo, onDismiss }) {
+  const [fading, setFading] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    timerRef.current = setTimeout(() => {
+      setFading(true);
+      setTimeout(onDismiss, 300);
+    }, UNDO_TIMEOUT);
+    return () => clearTimeout(timerRef.current);
+  }, [onDismiss]);
+
+  const handleUndo = () => {
+    clearTimeout(timerRef.current);
+    onUndo();
+  };
+
+  return (
+    <div
+      style={{
+        ...styles.undoToast,
+        ...(fading ? { animation: "fadeOut 0.3s ease-out forwards" } : {}),
+      }}
+    >
+      <span style={styles.undoText}>{message}</span>
+      <button
+        style={styles.undoBtn}
+        onClick={handleUndo}
+        onMouseEnter={(e) => (e.target.style.background = "#1a3a5c")}
+        onMouseLeave={(e) => (e.target.style.background = "transparent")}
+      >
+        undo
+      </button>
+    </div>
+  );
+}
+
+function WeeklyCard({ entry, onSkip, onAbsorb, isAddedThisWeek }) {
+  return (
+    <div style={styles.card}>
+      {isAddedThisWeek && <span style={styles.addedThisWeek}>added this week</span>}
+      <span style={styles.weightBadge}>w:{entry.weight.toFixed(1)}</span>
+      <p style={styles.cardText}>{entry.text}</p>
+      {(entry.author || entry.source) && (
+        <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#5a6270", marginTop: 10, marginBottom: 0, fontWeight: 400 }}>
+          {entry.author && `— ${entry.author}`}{entry.author && entry.source && ", "}{entry.source && <span style={{ fontStyle: "italic", color: "#4a5060" }}>{entry.source}</span>}
+        </p>
+      )}
+      <div style={styles.cardActions}>
+        <button
+          style={styles.actionBtn("skip")}
+          onClick={() => onSkip(entry.id)}
+          onMouseEnter={(e) => (e.target.style.background = "#22232e")}
+          onMouseLeave={(e) => (e.target.style.background = "#1a1b22")}
+        >
+          skip · not now
+        </button>
+        <button
+          style={styles.actionBtn("absorb")}
+          onClick={() => onAbsorb(entry.id)}
+          onMouseEnter={(e) => (e.target.style.background = "#0f3420")}
+          onMouseLeave={(e) => (e.target.style.background = "#0d2818")}
+        >
+          absorbed
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LibraryEntry({ entry, onDelete, onEdit, onAddToWeek, onResetWeight, isInWeek }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(entry.text);
+  const [editAuthor, setEditAuthor] = useState(entry.author || "");
+  const [editSource, setEditSource] = useState(entry.source || "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleSave = () => {
+    if (editText.trim() && editText.length <= MAX_CHARS) {
+      onEdit(entry.id, editText.trim(), editAuthor.trim(), editSource.trim());
+      setEditing(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditText(entry.text);
+    setEditAuthor(entry.author || "");
+    setEditSource(entry.source || "");
+    setEditing(false);
+  };
+
+  const weightColor =
+    entry.weight >= 7 ? "#6cb4ee" : entry.weight >= 4 ? "#f0b232" : entry.weight > 0 ? "#e07850" : "#e05252";
+
+  return (
+    <div>
+      <div style={styles.libraryEntry}>
+        <div style={{ flex: 1 }}>
+          {editing ? (
+            <div>
+              <textarea
+                style={styles.editTextarea}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                maxLength={MAX_CHARS}
+              />
+              <input
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  border: "1px solid #2a2d38",
+                  borderRadius: 5,
+                  background: "#0d0e14",
+                  color: "#c8ccd4",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 11,
+                  fontWeight: 400,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  marginTop: 6,
+                }}
+                placeholder="Author (optional)"
+                value={editAuthor}
+                onChange={(e) => setEditAuthor(e.target.value.slice(0, 50))}
+                maxLength={50}
+              />
+              <input
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  border: "1px solid #2a2d38",
+                  borderRadius: 5,
+                  background: "#0d0e14",
+                  color: "#c8ccd4",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 11,
+                  fontWeight: 400,
+                  fontStyle: "italic",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  marginTop: 4,
+                }}
+                placeholder="Source (optional)"
+                value={editSource}
+                onChange={(e) => setEditSource(e.target.value.slice(0, 100))}
+                maxLength={100}
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <button style={styles.smallBtn("#6cb4ee")} onClick={handleSave}>
+                  save
+                </button>
+                <button style={styles.smallBtn("#5a6270")} onClick={handleCancel}>
+                  cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={styles.libraryText}>
+              {entry.text}
+              {(entry.author || entry.source) && (
+                <span style={{ display: "block", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5a6270", marginTop: 4 }}>
+                  {entry.author && `— ${entry.author}`}{entry.author && entry.source && ", "}{entry.source && <span style={{ fontStyle: "italic", color: "#4a5060" }}>{entry.source}</span>}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={styles.libraryWeight}>
+          <span style={{ color: weightColor }}>{entry.weight.toFixed(1)}</span>
+        </div>
+        <div style={styles.libraryActions}>
+          {!editing && (
+            <>
+              <button
+                style={styles.smallBtn("#3ddc84")}
+                onClick={() => onAddToWeek(entry.id)}
+                title="Add to this week"
+              >
+                +
+              </button>
+              {entry.weight < 10 && (
+                <button
+                  style={styles.smallBtn("#f0b232")}
+                  onClick={() => onResetWeight(entry.id)}
+                  title="Reset weight to 10"
+                >
+                  ↻
+                </button>
+              )}
+              <button style={styles.smallBtn("#5a6270")} onClick={() => setEditing(true)}>
+                edit
+              </button>
+              <button style={styles.smallBtn("#e05252")} onClick={() => setConfirmDelete(true)}>
+                ×
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {confirmDelete && (
+        <div style={styles.deleteConfirm}>
+          <span style={{ fontSize: 12, color: "#e05252" }}>delete permanently?</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              style={{ ...styles.smallBtn("#e05252"), background: "#2a0a0a", borderRadius: 5, padding: "4px 10px" }}
+              onClick={() => {
+                onDelete(entry.id);
+                setConfirmDelete(false);
+              }}
+            >
+              yes, delete
+            </button>
+            <button style={styles.smallBtn("#5a6270")} onClick={() => setConfirmDelete(false)}>
+              cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Subtle reset-all-data control. Two-step confirm to avoid fat-finger wipes.
+function ResetAllButton({ onReset }) {
+  const [armed, setArmed] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (armed) {
+      timerRef.current = setTimeout(() => setArmed(false), 5000);
+      return () => clearTimeout(timerRef.current);
+    }
+  }, [armed]);
+
+  if (!armed) {
+    return (
+      <button
+        style={styles.resetLink}
+        onMouseEnter={(e) => (e.target.style.color = "#5a6270")}
+        onMouseLeave={(e) => (e.target.style.color = "#2a2d38")}
+        onClick={() => setArmed(true)}
+        title="Reset all data — wipes your vault"
+      >
+        reset
+      </button>
+    );
+  }
+  return (
+    <button
+      style={{ ...styles.resetLink, color: "#e05252" }}
+      onClick={() => {
+        clearTimeout(timerRef.current);
+        onReset();
+        setArmed(false);
+      }}
+    >
+      tap again to wipe
+    </button>
+  );
+}
+
+// --- Main App ---
+function InsightVault() {
+  const [data, setData] = useState(null);
+  const [view, setView] = useState("weekly");
+  const [newText, setNewText] = useState("");
+  const [newAuthor, setNewAuthor] = useState("");
+  const [newSource, setNewSource] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [undoState, setUndoState] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const result = await window.storage.get(STORAGE_KEY);
+        if (result && result.value) {
+          const parsed = JSON.parse(result.value);
+          // Migration: backfill author/source fields if missing
+          let needsSave = false;
+          const seedEntries = createSeedData().entries;
+          parsed.entries = parsed.entries.map((entry) => {
+            if (entry.author === undefined || entry.source === undefined) {
+              needsSave = true;
+              const seedMatch = seedEntries.find((s) => s.text === entry.text);
+              return {
+                ...entry,
+                author: entry.author !== undefined ? entry.author : (seedMatch ? seedMatch.author : ""),
+                source: entry.source !== undefined ? entry.source : (seedMatch ? seedMatch.source : ""),
+              };
+            }
+            return entry;
+          });
+          // Add any new seed entries not present in stored data
+          const existingTexts = new Set(parsed.entries.map((e) => e.text));
+          for (const seed of seedEntries) {
+            if (!existingTexts.has(seed.text)) {
+              parsed.entries.push(seed);
+              needsSave = true;
+            }
+          }
+          setData(parsed);
+          if (needsSave) {
+            await window.storage.set(STORAGE_KEY, JSON.stringify(parsed));
+          }
+        } else {
+          setData(createSeedData());
+        }
+      } catch {
+        setData(createSeedData());
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const saveData = useCallback(async (newData) => {
+    setData(newData);
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(newData));
+    } catch (e) {
+      console.error("Storage save failed:", e);
+    }
+  }, []);
+
+  const saveWithUndo = useCallback(
+    (newData, message) => {
+      const snapshot = JSON.parse(JSON.stringify(data));
+      setUndoState({ message, snapshot });
+      saveData(newData);
+    },
+    [data, saveData]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoState && undoState.snapshot) {
+      saveData(undoState.snapshot);
+      setUndoState(null);
+    }
+  }, [undoState, saveData]);
+
+  const dismissUndo = useCallback(() => {
+    setUndoState(null);
+  }, []);
+
+  const handleResetAll = useCallback(async () => {
+    await window.storage.delete(STORAGE_KEY);
+    const fresh = createSeedData();
+    setData(fresh);
+    await window.storage.set(STORAGE_KEY, JSON.stringify(fresh));
+  }, []);
+
+  // Weekly rotation
+  useEffect(() => {
+    if (!data) return;
+    const currentWeekId = getWeekId();
+    if (data.currentWeekId !== currentWeekId) {
+      const updated = { ...data, entries: data.entries.map((e) => ({ ...e })) };
+      if (data.currentWeekId) {
+        const prevSelected = new Set(data.weeklySelections || []);
+        updated.entries = updated.entries.map((entry) => {
+          let w = entry.weight;
+          if (prevSelected.has(entry.id) && !entry.skippedThisWeek && !entry.absorbedThisWeek) {
+            w -= 3;
+          }
+          if (!prevSelected.has(entry.id) && !entry.addedThisWeek) {
+            w += 0.5;
+          }
+          w = Math.max(0, Math.min(10, w));
+          return { ...entry, weight: w, skippedThisWeek: false, absorbedThisWeek: false, addedThisWeek: false };
+        });
+      }
+      updated.weeklySelections = weightedRandomSelect(updated.entries, 3);
+      updated.currentWeekId = currentWeekId;
+      saveData(updated);
+    }
+  }, [data, saveData]);
+
+  const handleSkip = (entryId) => {
+    if (!data) return;
+    const entry = data.entries.find((e) => e.id === entryId);
+    const updated = {
+      ...data,
+      entries: data.entries.map((e) =>
+        e.id === entryId ? { ...e, weight: Math.max(0, e.weight - 1.5), skippedThisWeek: true } : e
+      ),
+    };
+    const remainingPool = updated.entries.filter(
+      (e) => e.weight > 0 && !updated.weeklySelections.includes(e.id)
+    );
+    const replacement = weightedRandomSelect(remainingPool, 1);
+    updated.weeklySelections = updated.weeklySelections.map((id) =>
+      id === entryId ? (replacement[0] || id) : id
+    );
+    if (!replacement[0]) {
+      updated.weeklySelections = updated.weeklySelections.filter((id) => id !== entryId);
+    }
+    const preview = entry ? entry.text.slice(0, 40) + (entry.text.length > 40 ? "..." : "") : "entry";
+    saveWithUndo(updated, `Skipped "${preview}"`);
+  };
+
+  const handleAbsorb = (entryId) => {
+    if (!data) return;
+    const entry = data.entries.find((e) => e.id === entryId);
+    const updated = {
+      ...data,
+      entries: data.entries.map((e) =>
+        e.id === entryId ? { ...e, weight: Math.max(0, e.weight - 5), absorbedThisWeek: true } : e
+      ),
+    };
+    updated.weeklySelections = updated.weeklySelections.filter((id) => id !== entryId);
+    const preview = entry ? entry.text.slice(0, 40) + (entry.text.length > 40 ? "..." : "") : "entry";
+    saveWithUndo(updated, `Absorbed "${preview}"`);
+  };
+
+  const handleAddToWeek = () => {
+    if (!newText.trim() || newText.length > MAX_CHARS) return;
+    const newEntry = {
+      id: generateId(),
+      text: newText.trim(),
+      author: newAuthor.trim(),
+      source: newSource.trim(),
+      weight: 10,
+      createdAt: Date.now(),
+      addedThisWeek: true,
+    };
+    saveData({
+      ...data,
+      entries: [...data.entries, newEntry],
+      weeklySelections: [...data.weeklySelections, newEntry.id],
+    });
+    setNewText("");
+    setNewAuthor("");
+    setNewSource("");
+  };
+
+  const handleAddToLibrary = () => {
+    if (!newText.trim() || newText.length > MAX_CHARS) return;
+    const newEntry = {
+      id: generateId(),
+      text: newText.trim(),
+      author: newAuthor.trim(),
+      source: newSource.trim(),
+      weight: 10,
+      createdAt: Date.now(),
+    };
+    saveData({ ...data, entries: [...data.entries, newEntry] });
+    setNewText("");
+    setNewAuthor("");
+    setNewSource("");
+  };
+
+  const handleAddExistingToWeek = (entryId) => {
+    if (!data) return;
+    const filtered = data.weeklySelections.filter((id) => id !== entryId);
+    saveData({ ...data, weeklySelections: [...filtered, entryId] });
+  };
+
+  const handleResetWeight = (entryId) => {
+    if (!data) return;
+    saveData({
+      ...data,
+      entries: data.entries.map((e) => (e.id === entryId ? { ...e, weight: 10 } : e)),
+    });
+  };
+
+  const handleDelete = (entryId) => {
+    saveData({
+      ...data,
+      entries: data.entries.filter((e) => e.id !== entryId),
+      weeklySelections: data.weeklySelections.filter((id) => id !== entryId),
+    });
+  };
+
+  const handleEdit = (entryId, newTextVal, newAuthorVal, newSourceVal) => {
+    saveData({
+      ...data,
+      entries: data.entries.map((e) => (e.id === entryId ? { ...e, text: newTextVal, author: newAuthorVal, source: newSourceVal } : e)),
+    });
+  };
+
+  if (loading || !data) {
+    return (
+      <div style={styles.app}>
+        <div style={styles.content}>
+          <p style={{ color: "#3d4350", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const weeklyEntries = data.weeklySelections.map((id) => data.entries.find((e) => e.id === id)).filter(Boolean);
+  const weeklyIdSet = new Set(data.weeklySelections);
+  const sortedLibrary = [...data.entries].sort((a, b) => b.weight - a.weight);
+  const nextSunday = new Date();
+  const daysUntilSunday = (7 - nextSunday.getDay()) % 7 || 7;
+
+  return (
+    <div style={styles.app}>
+      <style>{animationCSS}</style>
+      <div style={styles.grain} />
+      <div style={styles.content}>
+        <div style={styles.header}>
+          <h1 style={styles.title}>Insight Vault</h1>
+          <p style={styles.subtitle}>{data.entries.length} entries · rotates every Sunday</p>
+        </div>
+
+        <div style={styles.nav}>
+          <button style={styles.navButton(view === "weekly")} onClick={() => setView("weekly")}>
+            This Week
+          </button>
+          <button style={styles.navButton(view === "library")} onClick={() => setView("library")}>
+            Library
+          </button>
+        </div>
+
+        {view === "weekly" && (
+          <div style={{ marginTop: 32 }}>
+            <div style={styles.weekInfo}>
+              <span style={styles.weekLabel}>Week of {data.currentWeekId}</span>
+              <span style={styles.weekLabel}>
+                {daysUntilSunday === 7 ? "rotates today" : `${daysUntilSunday}d until rotation`}
+              </span>
+            </div>
+            {weeklyEntries.length === 0 ? (
+              <div style={styles.emptyState}>
+                <div style={styles.emptyTitle}>Nothing this week</div>
+                <p style={{ fontSize: 14 }}>
+                  All entries are cooling down, or the library is empty. Add some from the Library tab.
+                </p>
+              </div>
+            ) : (
+              weeklyEntries.map((entry) => (
+                <WeeklyCard
+                  key={entry.id}
+                  entry={entry}
+                  onSkip={handleSkip}
+                  onAbsorb={handleAbsorb}
+                  isAddedThisWeek={entry.addedThisWeek}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {view === "library" && (
+          <div style={{ marginTop: 32 }}>
+            <div style={styles.addSection}>
+              <label style={styles.addLabel}>Add new insight</label>
+              <textarea
+                style={styles.textarea}
+                placeholder="Something worth remembering..."
+                value={newText}
+                onChange={(e) => setNewText(e.target.value)}
+                maxLength={MAX_CHARS}
+                onFocus={(e) => (e.target.style.borderColor = "#2a3a5c")}
+                onBlur={(e) => (e.target.style.borderColor = "#1e2028")}
+              />
+              <div style={styles.charCount(newText.length > MAX_CHARS)}>{newText.length}/{MAX_CHARS}</div>
+              <input
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  border: "1px solid #1e2028",
+                  borderRadius: 8,
+                  background: "#0d0e14",
+                  color: "#c8ccd4",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  marginTop: 10,
+                  transition: "border-color 0.2s ease",
+                }}
+                placeholder="Author (optional)"
+                value={newAuthor}
+                onChange={(e) => setNewAuthor(e.target.value.slice(0, 50))}
+                maxLength={50}
+                onFocus={(e) => (e.target.style.borderColor = "#2a3a5c")}
+                onBlur={(e) => (e.target.style.borderColor = "#1e2028")}
+              />
+              <input
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  border: "1px solid #1e2028",
+                  borderRadius: 8,
+                  background: "#0d0e14",
+                  color: "#c8ccd4",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  fontStyle: "italic",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  marginTop: 6,
+                  transition: "border-color 0.2s ease",
+                }}
+                placeholder="Source (optional) e.g. Atomic Habits, 2018"
+                value={newSource}
+                onChange={(e) => setNewSource(e.target.value.slice(0, 100))}
+                maxLength={100}
+                onFocus={(e) => (e.target.style.borderColor = "#2a3a5c")}
+                onBlur={(e) => (e.target.style.borderColor = "#1e2028")}
+              />
+              {newText.trim() && (
+                <div style={styles.addButtons}>
+                  <button style={styles.addBtn(true)} onClick={handleAddToWeek}>add to this week</button>
+                  <button style={styles.addBtn(false)} onClick={handleAddToLibrary}>add to library</button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, padding: "0 4px" }}>
+                <span style={styles.weekLabel}>{data.entries.length} entries</span>
+                <span style={styles.weekLabel}>weight</span>
+              </div>
+              {sortedLibrary.map((entry) => (
+                <LibraryEntry
+                  key={entry.id}
+                  entry={entry}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                  onAddToWeek={handleAddExistingToWeek}
+                  onResetWeight={handleResetWeight}
+                  isInWeek={weeklyIdSet.has(entry.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {undoState && (
+        <UndoToast
+          key={undoState.message}
+          message={undoState.message}
+          onUndo={handleUndo}
+          onDismiss={dismissUndo}
+        />
+      )}
+
+      <ResetAllButton onReset={handleResetAll} />
+    </div>
+  );
+}
+
+// Mount
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<InsightVault />);
+</script>
+</body>
+</html>
