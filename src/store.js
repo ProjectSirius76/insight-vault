@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { doc, getDoc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { createSeedData } from "./helpers.js";
+import { createSeedData, backfillEntries } from "./helpers.js";
 
 const LEGACY_LOCALSTORAGE_KEY = "insight-vault-data";
 
@@ -48,10 +48,17 @@ export function useVaultStore(uid) {
       { includeMetadataChanges: true },
       async (snap) => {
         if (snap.exists()) {
-          setData(snap.data());
+          // Pick up any default quotes added to the code since this vault
+          // was created, and backfill author/source on older entries —
+          // mirrors what the legacy localStorage build did on every load.
+          const { data: backfilled, needsSave } = backfillEntries(snap.data());
+          setData(backfilled);
           setLoading(false);
           setSyncError(null);
           initialized = true;
+          if (needsSave) {
+            setDoc(ref, backfilled).catch((e) => console.error("Vault backfill save failed:", e));
+          }
         } else if (!initialized) {
           // No vault yet for this account. Prefer this browser's legacy
           // localStorage data (from the pre-sync build) over fresh seed

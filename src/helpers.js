@@ -44,6 +44,41 @@ export function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// Keeps an existing vault in sync with newly-added default quotes, and fills
+// in author/source fields for entries that predate those fields. Ported
+// from the legacy build's load()-time migration pass (which ran against
+// localStorage on every load) — same logic, just returned instead of
+// mutated in place, so the caller decides whether/how to persist it.
+// Idempotent: once an entry has author/source and every seed text is
+// present, a second call is a no-op (needsSave: false).
+export function backfillEntries(data) {
+  let needsSave = false;
+  const seedEntries = createSeedData().entries;
+
+  const entries = data.entries.map((entry) => {
+    if (entry.author === undefined || entry.source === undefined) {
+      needsSave = true;
+      const seedMatch = seedEntries.find((s) => s.text === entry.text);
+      return {
+        ...entry,
+        author: entry.author !== undefined ? entry.author : seedMatch ? seedMatch.author : "",
+        source: entry.source !== undefined ? entry.source : seedMatch ? seedMatch.source : "",
+      };
+    }
+    return entry;
+  });
+
+  const existingTexts = new Set(entries.map((e) => e.text));
+  for (const seed of seedEntries) {
+    if (!existingTexts.has(seed.text)) {
+      entries.push(seed);
+      needsSave = true;
+    }
+  }
+
+  return needsSave ? { data: { ...data, entries }, needsSave } : { data, needsSave };
+}
+
 export function createSeedData() {
   return {
     entries: [
