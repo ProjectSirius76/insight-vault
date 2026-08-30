@@ -4,7 +4,7 @@ export function WeeklyCard({ entry, onSkip, onAbsorb, isAddedThisWeek }) {
   return (
     <div style={styles.card}>
       {isAddedThisWeek && <span style={styles.addedThisWeek}>added this week</span>}
-      <span style={styles.weightBadge}>w:{entry.weight.toFixed(1)}</span>
+      {import.meta.env.DEV && <span style={styles.weightBadge}>w:{entry.weight.toFixed(1)}</span>}
       <p style={styles.cardText}>{entry.text}</p>
       {(entry.author || entry.source) && (
         <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#5a6270", marginTop: 10, marginBottom: 0, fontWeight: 400 }}>
