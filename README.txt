@@ -94,30 +94,26 @@ Then weights update:
 YOUR DATA
 ---------
 
-Lives in your browser's localStorage. That means:
+Synced via a Google account, stored in Firestore. That means:
 
-  - Private to your browser. Nothing leaves your machine.
-  - Per-device. Your phone and your laptop are separate vaults.
-  - Per-browser. Chrome and Firefox on the same laptop are
-    separate vaults.
-  - Wiped if you clear browsing data for the site.
-  - There is no sync, no account, no server.
+  - Sign in once per device. The same vault follows you — phone,
+    laptop, wherever you're signed in.
+  - Changes made on one device show up on your other open devices
+    automatically (no refresh needed).
+  - Works offline: a local cache keeps the app usable without a
+    connection, and queued changes sync once you're back online.
+  - Only your signed-in account can read or write your vault —
+    enforced by Firestore security rules, not just app-side checks.
 
-If you want to back up or transfer your vault, open the browser's
-DevTools console (F12 → Console) on the site and run:
-
-  localStorage.getItem("insight-vault-data")
-
-Copy the result somewhere safe. To restore later:
-
-  localStorage.setItem("insight-vault-data", '<paste here>')
+This replaced the earlier localStorage-only build (still in
+legacy/index-standalone.html), where the vault was private to one
+browser on one device with no sync. See SETUP.md for how the
+Firebase project behind this is configured, and for how to bring
+over entries from that older build if you were using it.
 
 
 KNOWN QUIRKS
 ------------
-
-  - First load takes a second or two while the JSX compiles in
-    your browser. Subsequent loads are faster (cached).
 
   - The rotation only ticks when you have the app open. If you
     don't open it for three weeks, you get one rotation, not

@@ -1,0 +1,22 @@
+{
+  "name": "insight-vault",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && npx firebase-tools deploy --only hosting"
+  },
+  "dependencies": {
+    "firebase": "^11.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1",
+    "vite-plugin-pwa": "^1.3.0"
+  }
+}

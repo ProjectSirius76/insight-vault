@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "insight-vault-auth"
+  },
+  "targets": {},
+  "etags": {}
+}
