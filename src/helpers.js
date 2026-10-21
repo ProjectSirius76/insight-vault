@@ -46,11 +46,13 @@ export function generateId() {
 
 // Keeps an existing vault in sync with newly-added default quotes, and fills
 // in author/source fields for entries that predate those fields. Ported
-// from the legacy build's load()-time migration pass (which ran against
-// localStorage on every load) — same logic, just returned instead of
-// mutated in place, so the caller decides whether/how to persist it.
-// Idempotent: once an entry has author/source and every seed text is
-// present, a second call is a no-op (needsSave: false).
+// from the legacy build's load()-time migration pass, except that each seed
+// is only ever added once: `seededTexts` records every seed text the vault
+// has been given, so a seed the user deletes (or edits) stays gone instead
+// of being re-added on the next snapshot. Vaults that predate `seededTexts`
+// get any missing seeds once, then every current seed is marked as seen.
+// Idempotent: once an entry has author/source and every seed text is in
+// `seededTexts`, a second call is a no-op (needsSave: false).
 export function backfillEntries(data) {
   let needsSave = false;
   const seedEntries = createSeedData().entries;
@@ -69,18 +71,22 @@ export function backfillEntries(data) {
   });
 
   const existingTexts = new Set(entries.map((e) => e.text));
+  const seededTexts = new Set(data.seededTexts || []);
   for (const seed of seedEntries) {
-    if (!existingTexts.has(seed.text)) {
-      entries.push(seed);
+    if (!seededTexts.has(seed.text)) {
+      if (!existingTexts.has(seed.text)) entries.push(seed);
+      seededTexts.add(seed.text);
       needsSave = true;
     }
   }
 
-  return needsSave ? { data: { ...data, entries }, needsSave } : { data, needsSave };
+  return needsSave
+    ? { data: { ...data, entries, seededTexts: [...seededTexts] }, needsSave }
+    : { data, needsSave };
 }
 
 export function createSeedData() {
-  return {
+  const data = {
     entries: [
       {
         id: generateId(),
@@ -151,4 +157,6 @@ export function createSeedData() {
     currentWeekId: null,
     lastTickWeekId: null,
   };
+  data.seededTexts = data.entries.map((e) => e.text);
+  return data;
 }
