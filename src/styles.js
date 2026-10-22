@@ -109,6 +109,7 @@ export const styles = {
     color: "#b0b6c0",
     fontWeight: 300,
     margin: 0,
+    whiteSpace: "pre-wrap",
   },
   cardActions: {
     display: "flex",
@@ -185,6 +186,7 @@ export const styles = {
     lineHeight: 1.6,
     color: "#9098a4",
     fontWeight: 300,
+    whiteSpace: "pre-wrap",
   },
   libraryWeight: {
     fontFamily: "'IBM Plex Mono', monospace",
@@ -344,6 +346,44 @@ export const styles = {
     zIndex: 50,
     transition: "color 0.2s ease",
   },
+  installFooter: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 56,
+    paddingTop: 20,
+    borderTop: "1px solid #1a1b22",
+    fontSize: 12,
+    color: "#5a6270",
+    letterSpacing: "0.2px",
+    textAlign: "center",
+    animation: "fadeIn 0.6s ease-out",
+  },
+  installBtn: {
+    padding: "5px 12px",
+    border: "none",
+    borderRadius: 6,
+    background: "#1a3a5c",
+    color: "#6cb4ee",
+    fontFamily: "'IBM Plex Sans', sans-serif",
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "background 0.2s ease",
+    letterSpacing: "0.2px",
+  },
+  installDismiss: {
+    padding: "2px 6px",
+    border: "none",
+    background: "transparent",
+    color: "#3d4350",
+    fontSize: 15,
+    lineHeight: 1,
+    cursor: "pointer",
+    transition: "color 0.2s ease",
+  },
   syncStatus: {
     fontFamily: "'IBM Plex Mono', monospace",
     fontSize: 10,
@@ -427,5 +467,9 @@ export const animationCSS = `
 @keyframes fadeOut {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 `;

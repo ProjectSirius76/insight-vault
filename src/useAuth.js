@@ -8,7 +8,7 @@ import {
 } from "firebase/auth";
 import { auth, googleProvider } from "./firebase.js";
 
-function isStandalone() {
+export function isStandalone() {
   return (
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
     window.navigator.standalone === true // iOS Safari's older flag

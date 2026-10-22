@@ -8,6 +8,7 @@ import { UndoToast } from "./components/UndoToast.jsx";
 import { WeeklyCard } from "./components/WeeklyCard.jsx";
 import { LibraryEntry } from "./components/LibraryEntry.jsx";
 import { ResetAllButton } from "./components/ResetAllButton.jsx";
+import { InstallPrompt } from "./components/InstallPrompt.jsx";
 
 function syncErrorMessage(error) {
   if (error.code === "permission-denied") {
@@ -386,6 +387,8 @@ function InsightVault({ user, onSignOut }) {
             </div>
           </div>
         )}
+
+        <InstallPrompt />
       </div>
 
       {undoState && (
