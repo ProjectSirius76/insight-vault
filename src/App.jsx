@@ -57,6 +57,58 @@ export default function App() {
   return <InsightVault user={user} onSignOut={signOut} />;
 }
 
+// Applies the end-of-week weight changes, clears the per-week flags and draws
+// a fresh set of picks. Shared by the Sunday rotation and the early swap.
+function rotateWeek(data) {
+  const updated = { ...data, entries: data.entries.map((e) => ({ ...e })) };
+  if (data.currentWeekId) {
+    const prevSelected = new Set(data.weeklySelections || []);
+    updated.entries = updated.entries.map((entry) => {
+      let w = entry.weight;
+      if (prevSelected.has(entry.id) && !entry.skippedThisWeek && !entry.absorbedThisWeek) {
+        w -= 3;
+      }
+      if (!prevSelected.has(entry.id) && !entry.addedThisWeek) {
+        w += 0.5;
+      }
+      w = Math.max(0, Math.min(10, w));
+      return { ...entry, weight: w, skippedThisWeek: false, absorbedThisWeek: false, addedThisWeek: false };
+    });
+  }
+  updated.weeklySelections = weightedRandomSelect(updated.entries, 3);
+  return updated;
+}
+
+// Shows "Xd until rotation", switching to a live HH:MM:SS clock once less
+// than 24h remain before the Sunday 00:00 (local) rotation. When an early
+// swap has halted the upcoming rotation, it counts to the Sunday after.
+function RotationCountdown({ halted }) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const daysUntilSunday = (7 - now.getDay()) % 7 || 7;
+  if (halted) return `${daysUntilSunday + 7}d until rotation`;
+  if (daysUntilSunday === 7) return "rotates today";
+
+  const nextSunday = new Date(now);
+  nextSunday.setHours(0, 0, 0, 0);
+  nextSunday.setDate(nextSunday.getDate() + daysUntilSunday);
+  const msLeft = nextSunday - now;
+
+  if (msLeft >= 24 * 60 * 60 * 1000) return `${daysUntilSunday}d until rotation`;
+
+  const totalSeconds = Math.max(0, Math.floor(msLeft / 1000));
+  const pad = (n) => String(n).padStart(2, "0");
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${pad(h)}:${pad(m)}:${pad(s)} until rotation`;
+}
+
 function InsightVault({ user, onSignOut }) {
   const { data, loading, syncError, saveData, saveWithUndo, undoState, handleUndo, dismissUndo, handleResetAll } =
     useVaultStore(user.uid);
@@ -86,26 +138,29 @@ function InsightVault({ user, onSignOut }) {
     if (!data) return;
     const currentWeekId = getWeekId();
     if (data.currentWeekId !== currentWeekId) {
-      const updated = { ...data, entries: data.entries.map((e) => ({ ...e })) };
-      if (data.currentWeekId) {
-        const prevSelected = new Set(data.weeklySelections || []);
-        updated.entries = updated.entries.map((entry) => {
-          let w = entry.weight;
-          if (prevSelected.has(entry.id) && !entry.skippedThisWeek && !entry.absorbedThisWeek) {
-            w -= 3;
-          }
-          if (!prevSelected.has(entry.id) && !entry.addedThisWeek) {
-            w += 0.5;
-          }
-          w = Math.max(0, Math.min(10, w));
-          return { ...entry, weight: w, skippedThisWeek: false, absorbedThisWeek: false, addedThisWeek: false };
-        });
+      // An early swap already gave the user a new set, so this one rotation is
+      // skipped — but only if no further weeks were missed while the app was closed.
+      const lastWeek = new Date();
+      lastWeek.setDate(lastWeek.getDate() - 7);
+      if (data.rotationHalted && data.currentWeekId === getWeekId(lastWeek)) {
+        saveData({ ...data, currentWeekId, rotationHalted: false });
+        return;
       }
-      updated.weeklySelections = weightedRandomSelect(updated.entries, 3);
-      updated.currentWeekId = currentWeekId;
-      saveData(updated);
+      saveData({ ...rotateWeek(data), currentWeekId, rotationHalted: false });
     }
   }, [data, saveData]);
+
+  // First press is a real rotation (weights change) and halts the upcoming
+  // Sunday rotation. Further presses only reroll the picks, so the halt never
+  // stacks past one week and rerolling doesn't drain weights.
+  const handleNewWeekNow = () => {
+    if (!data) return;
+    if (data.rotationHalted) {
+      saveWithUndo({ ...data, weeklySelections: weightedRandomSelect(data.entries, 3) }, "Rerolled this week");
+    } else {
+      saveWithUndo({ ...rotateWeek(data), rotationHalted: true }, "Started a new week early");
+    }
+  };
 
   const handleSkip = (entryId) => {
     if (!data) return;
@@ -238,8 +293,6 @@ function InsightVault({ user, onSignOut }) {
   const weeklyEntries = data.weeklySelections.map((id) => data.entries.find((e) => e.id === id)).filter(Boolean);
   const weeklyIdSet = new Set(data.weeklySelections);
   const sortedLibrary = [...data.entries].sort((a, b) => b.weight - a.weight);
-  const nextSunday = new Date();
-  const daysUntilSunday = (7 - nextSunday.getDay()) % 7 || 7;
 
   return (
     <div style={styles.app}>
@@ -274,9 +327,14 @@ function InsightVault({ user, onSignOut }) {
           <div style={{ marginTop: 32 }}>
             <div style={styles.weekInfo}>
               <span style={styles.weekLabel}>Week of {data.currentWeekId}</span>
-              <span style={styles.weekLabel}>
-                {daysUntilSunday === 7 ? "rotates today" : `${daysUntilSunday}d until rotation`}
-              </span>
+              <div style={styles.weekActions}>
+                <span style={styles.weekLabel}>
+                  <RotationCountdown halted={!!data.rotationHalted} />
+                </span>
+                <button style={styles.newWeekBtn} onClick={handleNewWeekNow}>
+                  {data.rotationHalted ? "reroll" : "new week now"}
+                </button>
+              </div>
             </div>
             {weeklyEntries.length === 0 ? (
               <div style={styles.emptyState}>

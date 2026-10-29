@@ -22,8 +22,24 @@ THIS WEEK tab — your three entries for the week.
                     cools down hard and won't show up again for a
                     while.
 
-  undo              Appears for 4 seconds after skip or absorb. Lets
-                    you take it back if you misclicked.
+  new week now      Itching to move on? Starts the next week early:
+                    weights update exactly as on a normal Sunday and
+                    you get three fresh picks. The upcoming Sunday
+                    rotation is then skipped, so the new set lasts
+                    until the Sunday after. See "Starting a week
+                    early" below.
+
+  reroll            Replaces "new week now" after you've used it.
+                    Draws three new picks without touching weights.
+                    Press it as often as you like.
+
+  undo              Appears for 4 seconds after skip, absorb, new
+                    week now, or reroll. Lets you take it back if you
+                    misclicked.
+
+  countdown         Top right of the week. Shows days until the next
+                    rotation, and switches to a live HH:MM:SS clock
+                    in the final 24 hours.
 
 
 LIBRARY tab — every entry you have, sorted by likelihood of being
@@ -91,6 +107,27 @@ Then weights update:
   - Everything else (that wasn't added mid-week): +0.5
 
 
+STARTING A WEEK EARLY
+---------------------
+
+"new week now" runs the same rotation as Sunday does (same weight
+changes, same weighted pick) and puts the next Sunday rotation on
+hold. When that Sunday arrives, the app just moves the "Week of"
+date forward and keeps your current picks. Normal rotation resumes
+the Sunday after.
+
+The hold is a single on/off switch, not a counter, so it can never
+skip more than one Sunday:
+
+  - First press: real rotation, weights change, hold switched on.
+    The button becomes "reroll".
+  - Every press after that: new picks only. Weights don't change
+    (otherwise mashing the button would drain your whole library),
+    and the hold stays at one Sunday.
+  - The weights for the picks you end up with are settled at the
+    next real rotation, like any other week.
+
+
 YOUR DATA
 ---------
 
@@ -122,6 +159,22 @@ KNOWN QUIRKS
 
   - The currently-displayed week info shows the Sunday the week
     started, not today's date.
+
+  - Starting a week early near the start of a week makes that set
+    last a long time. Press "new week now" on a Monday and the
+    picks stay for about 13 days, because the coming Sunday is
+    skipped.
+
+  - If you start a week early and then don't open the app for more
+    than a week, the hold is dropped and you get a normal rotation
+    when you come back, rather than more of the old picks.
+
+  - Rerolls can land on some of the same entries again. It's a
+    weighted random draw, and nothing stops repeats.
+
+  - The countdown doesn't trigger the rotation by itself. When it
+    hits zero, the new week's picks appear the next time the app
+    loads or your vault changes.
 
 
 CREDITS

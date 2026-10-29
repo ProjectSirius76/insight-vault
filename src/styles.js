@@ -93,6 +93,23 @@ export const styles = {
     textTransform: "uppercase",
     letterSpacing: "1.5px",
   },
+  weekActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  newWeekBtn: {
+    padding: "4px 10px",
+    border: "1px solid #1e2028",
+    borderRadius: 7,
+    background: "transparent",
+    color: "#5a6270",
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: "1px",
+    cursor: "pointer",
+  },
   card: {
     background: "linear-gradient(135deg, #15161d 0%, #131420 100%)",
     border: "1px solid #1e2028",
